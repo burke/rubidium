@@ -14,9 +14,6 @@ class JSConcat
       return @app.call(env)
     end
 
-    # path will be something like
-    # /2309850198350913/jquery-1.3.2+cufon-yui+taffydb+++burkelibbey.org.js
-
     cmd = path.sub(/^.*\//,'').sub(/\.js$/,'')
 
     javascripts, domain = cmd.split('+++')
@@ -68,7 +65,7 @@ class JSConcat
   end
 
   def check_for_domain(domain)
-    "if(!location.host.match(domain)){alert('JavaScript hotlinked from Chromium 53. Check out our JSAppliance at http://github.com/burke/jsappliance.')};"
+    "if(!location.host.match('#{domain}')){alert('JavaScript hotlinked from Chromium 53. Check out our JSAppliance at http://github.com/burke/jsappliance.')};"
   end
 
 end

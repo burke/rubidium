@@ -1,17 +1,22 @@
-#--
-# jsmin.rb - Ruby implementation of Douglas Crockford's JSMin.
+#!/usr/bin/ruby
+# jsmin.rb 2007-07-20
+# Author: Uladzislau Latynski
+# This work is a translation from C to Ruby of jsmin.c published by
+# Douglas Crockford.  Permission is hereby granted to use the Ruby
+# version under the same conditions as the jsmin.c on which it is
+# based.
 #
-# This is a port of jsmin.c, and is distributed under the same terms, which are
-# as follows:
+# /* jsmin.c
+#    2003-04-21
 #
-# Copyright (c) 2002 Douglas Crockford (www.crockford.com)
+# Copyright (c) 2002 Douglas Crockford  (www.crockford.com)
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+# of the Software, and to permit persons to whom the Software is furnished to do
+# so, subject to the following conditions:
 #
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
@@ -25,209 +30,176 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-#++
- 
-require 'strscan'
- 
-# = JSMin
-#
-# Ruby implementation of Douglas Crockford's JavaScript minifier, JSMin.
-#
-# Author:: Ryan Grove (mailto:ryan@wonko.com)
-# Version:: 1.0.0 (2008-03-22)
-# Copyright:: Copyright (c) 2008 Ryan Grove. All rights reserved.
-# Website:: http://github.com/rgrove/jsmin/
-#
-# == Example
-#
-# require 'rubygems'
-# require 'jsmin'
-#
-# File.open('example.js', 'r') {|file| puts JSMin.minify(file) }
-#
-module JSMin
-  ORD_LF = "\n"[0].freeze
-  ORD_SPACE = ' '[0].freeze
-  
-  class << self
-    
-    # Reads JavaScript from +input+ (which can be a String or an IO object) and
-    # returns a String containing minified JS.
-    def minify(input)
-      @js = StringScanner.new(input.is_a?(IO) ? input.read : input.to_s)
- 
-      @a = "\n"
-      @b = nil
-      @lookahead = nil
-      @output = ''
-      
-      action_get
-      
-      while !@a.nil? do
-        case @a
-        when ' '
-          if alphanum?(@b)
-            action_output
-          else
-            action_copy
-          end
-          
-        when "\n"
-          if @b == ' '
-            action_get
-          elsif @b =~ /[{\[\(+-]/
-            action_output
-          else
-            if alphanum?(@b)
-              action_output
-            else
-              action_copy
-            end
-          end
-          
-        else
-          if @b == ' '
-            if alphanum?(@a)
-              action_output
-            else
-              action_get
-            end
-          elsif @b == "\n"
-            if @a =~ /[}\]\)\\"+-]/
-              action_output
-            else
-              if alphanum?(@a)
-                action_output
-              else
-                action_get
-              end
-            end
-          else
-            action_output
-          end
-        end
-      end
-      
-      @output
-    end
-    
-    private
-    
-    # Corresponds to action(1) in jsmin.c.
-    def action_output
-      @output << @a
-      action_copy
-    end
-    
-    # Corresponds to action(2) in jsmin.c.
-    def action_copy
-      @a = @b
-      
-      if @a == '\'' || @a == '"'
-        loop do
-          @output << @a
-          @a = get
-          
-          break if @a == @b
-          
-          if @a[0] <= ORD_LF
-            raise "JSMin parse error: unterminated string literal: #{@a}"
-          end
-          
-          if @a == '\\'
-            @output << @a
-            @a = get
-            
-            if @a[0] <= ORD_LF
-              raise "JSMin parse error: unterminated string literal: #{@a}"
-            end
-          end
-        end
-      end
-      
-      action_get
-    end
-    
-    # Corresponds to action(3) in jsmin.c.
-    def action_get
-      @b = nextchar
-      
-      if @b == '/' && (@a == "\n" || @a =~ /[\(,=:\[!&|?{};]/)
-        @output << @a
-        @output << @b
-        
-        loop do
-          @a = get
-          
-          if @a == '/'
-            break
-          elsif @a == '\\'
-            @output << @a
-            @a = get
-          elsif @a[0] <= ORD_LF
-            raise "JSMin parse error: unterminated regular expression " +
-                "literal: #{@a}"
-          end
-          
-          @output << @a
-        end
-        
-        @b = nextchar
-      end
-    end
-    
-    # Returns true if +c+ is a letter, digit, underscore, dollar sign,
-    # backslash, or non-ASCII character.
-    def alphanum?(c)
-      c.is_a?(String) && !c.empty? && (c[0] > 126 || c =~ /[0-9a-z_$\\]/i)
-    end
-    
-    # Returns the next character from the input. If the character is a control
-    # character, it will be translated to a space or linefeed.
-    def get
-      c = @lookahead.nil? ? @js.getch : @lookahead
-      @lookahead = nil
- 
-      return c if c.nil? || c == "\n" || c[0] >= ORD_SPACE
-      return "\n" if c == "\r"
-      return ' '
-    end
-    
-    # Gets the next character, excluding comments.
-    def nextchar
-      c = get
-      return c unless c == '/'
-      
-      case peek
-      when '/'
-        loop do
-          c = get
-          return c if c[0] <= ORD_LF
-        end
-      
-      when '*'
-        get
-        loop do
-          case get
-          when '*'
-            if peek == '/'
-              get
-              return ' '
-            end
-          
-          when nil
-            raise 'JSMin parse error: unterminated comment'
-          end
-        end
-      
-      else
-        return c
-      end
-    end
-    
-    # Gets the next character without getting it.
-    def peek
-      @lookahead = get
-    end
-  end
+
+EOF = -1
+$theA = ""
+$theB = ""
+
+# isAlphanum -- return true if the character is a letter, digit, underscore,
+# dollar sign, or non-ASCII character
+def isAlphanum(c)
+   return false if !c || c == EOF
+   return ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+           (c >= 'A' && c <= 'Z') || c == '_' || c == '$' ||
+           c == '\\' || c[0] > 126)
 end
+
+# get -- return the next character from stdin. Watch out for lookahead. If
+# the character is a control character, translate it to a space or linefeed.
+def get()
+  c = $stdin.getc
+  return EOF if(!c)
+  c = c.chr
+  return c if (c >= " " || c == "\n" || c.unpack("c") == EOF)
+  return "\n" if (c == "\r")
+  return " "
+end
+
+# Get the next character without getting it.
+def peek()
+    lookaheadChar = $stdin.getc
+    $stdin.ungetc(lookaheadChar)
+    return lookaheadChar.chr
+end
+
+# mynext -- get the next character, excluding comments.
+# peek() is used to see if a '/' is followed by a '/' or '*'.
+def mynext()
+    c = get
+    if (c == "/")
+        if(peek == "/")
+            while(true)
+                c = get
+                if (c <= "\n")
+                return c
+                end
+            end
+        end
+        if(peek == "*")
+            get
+            while(true)
+                case get
+                when "*"
+                   if (peek == "/")
+                        get
+                        return " "
+                    end
+                when EOF
+                    raise "Unterminated comment"
+                end
+            end
+        end
+    end
+    return c
+end
+
+
+# action -- do something! What you do is determined by the argument: 1
+# Output A. Copy B to A. Get the next B. 2 Copy B to A. Get the next B.
+# (Delete A). 3 Get the next B. (Delete B). action treats a string as a
+# single character. Wow! action recognizes a regular expression if it is
+# preceded by ( or , or =.
+def action(a)
+    if(a==1)
+        $stdout.write $theA
+    end
+    if(a==1 || a==2)
+        $theA = $theB
+        if ($theA == "\'" || $theA == "\"")
+            while (true)
+                $stdout.write $theA
+                $theA = get
+                break if ($theA == $theB)
+                raise "Unterminated string literal" if ($theA <= "\n")
+                if ($theA == "\\")
+                    $stdout.write $theA
+                    $theA = get
+                end
+            end
+        end
+    end
+    if(a==1 || a==2 || a==3)
+        $theB = mynext
+        if ($theB == "/" && ($theA == "(" || $theA == "," || $theA == "=" ||
+                             $theA == ":" || $theA == "[" || $theA == "!" ||
+                             $theA == "&" || $theA == "|" || $theA == "?" ||
+                             $theA == "{" || $theA == "}" || $theA == ";" ||
+                             $theA == "\n"))
+            $stdout.write $theA
+            $stdout.write $theB
+            while (true)
+                $theA = get
+                if ($theA == "/")
+                    break
+                elsif ($theA == "\\")
+                    $stdout.write $theA
+                    $theA = get
+                elsif ($theA <= "\n")
+                    raise "Unterminated RegExp Literal"
+                end
+                $stdout.write $theA
+            end
+            $theB = mynext
+        end
+    end
+end
+
+# jsmin -- Copy the input to the output, deleting the characters which are
+# insignificant to JavaScript. Comments will be removed. Tabs will be
+# replaced with spaces. Carriage returns will be replaced with linefeeds.
+# Most spaces and linefeeds will be removed.
+def jsmin
+    $theA = "\n"
+    action(3)
+    while ($theA != EOF)
+        case $theA
+        when " "
+            if (isAlphanum($theB))
+                action(1)
+            else
+                action(2)
+            end
+        when "\n"
+            case ($theB)
+            when "{","[","(","+","-"
+                action(1)
+            when " "
+                action(3)
+            else
+                if (isAlphanum($theB))
+                    action(1)
+                else
+                    action(2)
+                end
+            end
+        else
+            case ($theB)
+            when " "
+                if (isAlphanum($theA))
+                    action(1)
+                else
+                    action(3)
+                end
+            when "\n"
+                case ($theA)
+                when "}","]",")","+","-","\"","\\", "'", '"'
+                    action(1)
+                else
+                    if (isAlphanum($theA))
+                        action(1)
+                    else
+                        action(3)
+                    end
+                end
+            else
+                action(1)
+            end
+        end
+    end
+end
+
+ARGV.each do |anArg|
+    $stdout.write "// #{anArg}\n"
+end
+
+jsmin
