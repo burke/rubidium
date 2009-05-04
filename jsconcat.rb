@@ -37,12 +37,14 @@ class JSConcat
     tmp_path = "public/#{rand.to_s}.js"
     output_path = "public/#{cmd}.js"
     
-    F.open(tmp_path,'w'){|f|f.puts full_js}
+#     F.open(tmp_path,'w'){|f|f.puts full_js}
     
-    F.open(tmp_path, "r") do |file|
-      F.open(output_path, "w") { |f| f.puts JSMin.minify(file) }
-    end
-    F.delete(tmp_path)
+#     F.open(tmp_path, "r") do |file|
+#       F.open(output_path, "w") { |f| f.puts JSMin.minify(file) }
+#     end
+#     F.delete(tmp_path)
+
+    F.open(output_path,'w'){|f|f.puts full_js}
     
     [200, {
        "Last-Modified"  => F.mtime(output_path).httpdate,
