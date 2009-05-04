@@ -37,8 +37,8 @@ class JSConcat
       full_js << check_for_domain(domain)
     end
 
-    tmp_path = "cache/#{rand.to_s}.js"
-    output_path = "cache/#{cmd}.js"
+    tmp_path = "public/#{rand.to_s}.js"
+    output_path = "public/#{cmd}.js"
     
     F.open(tmp_path,'w'){|f|f.puts full_js}
     
