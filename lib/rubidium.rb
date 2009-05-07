@@ -1,4 +1,4 @@
-class JSAppliance
+class Rubidium
   F = ::File # I still don't understand why Rack overrides File.
   
   def initialize(app)
@@ -9,26 +9,53 @@ class JSAppliance
     path = env["PATH_INFO"]
 
     # We obviously only deal with javascript files here.
-    unless path.match(/\.js$/)
-      return @app.call(env)
+    return @app.call(env) unless path.match(/\.js$/)
+
+    begin
+      javascripts, domains = parse_path(path)
+    rescue SecurityError
+      return error_403
     end
+
+    full_javascript = build_javascript(javascripts, domains)
+
+    path = generate_cache_file(path, full_javascript)
+
+    # We're done! Send off the file. This is probably the last time
+    # rack will ever handle this particular file.
+    return send_file(path)
+
+  end
+
+  private #####################################################################
+
+  def parse_path(path)
+
+    # Stop any errant jackasses that manage to figure out the password and
+    # figure they'll serve up /etc/passwd or something...
+    raise SecurityError if path.include?("..")
 
     # Our "command" string is everything between the final '/' and the '.js'.
     cmd = path.sub(/^.*\//,'').sub(/\.js$/,'')
 
     # command is of the form "script1+script2+++domain1+domain2"
     # split into [script1,script2] and [domain1,domain2].
-    javascripts, domains = cmd.split('+++').map{|s|s.split('+')}
-
-    # Make sure that each source script actually exists.
-    javascripts.each do |script|
-      return error_403 if !F.readable?(real_path_for_script(script))
+    javascripts, domains = cmd.split('+++').map do |list|
+      list.split('+')
     end
 
-    # Stop any errant jackasses that manage to figure out the password and
-    # figure they'll serve up /etc/passwd or something...
-    return error_403 if env["PATH_INFO"].include?("..")
+    (domains||=[]) << "localhost" # Ensure that domains contains "localhost".
     
+    # Make sure that each source script actually exists.
+    javascripts.each do |script|
+      raise SecurityError if !F.readable?(real_path_for_script(script))
+    end
+
+    return [javascripts, domains]
+    
+  end
+
+  def build_javascript(javascripts, domains)
     # concatenate all the javascript files.
     full_js = javascripts.inject("") do |full,nxt|
       full << File.read(real_path_for_script(nxt))
@@ -39,29 +66,42 @@ class JSAppliance
     if domains
       full_js << check_for_domain(domains)
     end
+    full_js
+  end
+  
+  # Use YUI compressor to minify generated javascript.
+  # We have to use a temporary file here since we're shelling out to a jar.
+  # It takes AGES to run, but files are cached semi-permanently, so it's not
+  # really a big deal.
+  def generate_cache_file(path, javascript)
+    command = path.sub(/^.*\//,'').sub(/\.js$/,'')
 
-    # Use YUI compressor to minify generated javascript.
-    # We have to use a temporary file here since we're shelling out to a jar.
-    # It takes AGES to run, but files are cached semi-permanently, so it's not
-    # really a big deal.
     tmp_path = "public/#{rand.to_s}.js"
-    output_path = "public/#{cmd}.js"
-    F.open(tmp_path,'w'){|f|f.puts full_js}
+    output_path = "public/#{command}.js"
+
+    F.open(tmp_path,'w') do |file|
+      file.puts javascript
+    end
+
     `java -jar yuicompressor-2.4.2.jar #{tmp_path} -o #{output_path} --line-break 0`
+
     F.delete(tmp_path)
 
-    # We're done! Send off the file. This is probably the last time
-    # rack will ever handle this particular file.
-    [200, {
-       "Last-Modified"  => F.mtime(output_path).httpdate,
-       "Expires" => Time.at((2**31)-1).httpdate,
-       "Content-Type"   => "text/javascript",
-       "Content-Length" => F.size(output_path).to_s
-     }, F.new(output_path, "r")]
-
+    return output_path
   end
 
-  private #####################################################################
+  # Build up a response suitable for rack to process
+  def send_file(path)
+
+    [200, {
+       "Last-Modified"  => F.mtime(path).httpdate,
+       "Expires" => Time.at((2**31)-1).httpdate,
+       "Content-Type"   => "text/javascript",
+       "Content-Length" => F.size(path).to_s
+     }, F.new(path, "r")]
+
+  end
+  
   # the actual filesystem path for a given script name
   def real_path_for_script(script)
     "scripts/#{script}.js"
@@ -89,7 +129,7 @@ class JSAppliance
     negated_cond = domains.join('||')
     cond = "!(#{negated_cond})"
     
-    "if(#{cond}){alert('JavaScript hotlinked from Chromium 53. Check out our JSAppliance at http://github.com/burke/jsappliance.')};"
+    "if(#{cond}){alert('JavaScript hotlinked from Chromium 53. Check out Rubidium, our JavaScript appliance, at http://github.com/burke/rubidium.')};"
   end
 
 end
